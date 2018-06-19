@@ -1,4 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
 #include <time.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -184,10 +183,13 @@ static double parse_arg(const char *arg) {
     switch (*s) {
     case 'd':
         mul *= 24;
+        // fallthrough
     case 'h':
         mul *= 60;
+        // fallthrough
     case 'm':
         mul *= 60;
+        // fallthrough
     case '\0':
     case 's':
         break;

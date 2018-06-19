@@ -1,6 +1,6 @@
 version = $(shell git rev-parse --short HEAD 2>/dev/null || cat VERSION 2>/dev/null || echo unknown)
 CFLAGS = -std=c99 -Wall -Wextra -O2
-CPPFLAGS = -DPROGRAM_VERSION=\"$(version)\"
+CPPFLAGS = -D_POSIX_C_SOURCE=200809L -DPROGRAM_VERSION=\"$(version)\"
 LDFLAGS = -lm
 PREFIX = /usr/local
 
