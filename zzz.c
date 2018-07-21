@@ -135,11 +135,18 @@ static void loop(double seconds, double blinktime) {
 }
 
 static void help(void) {
-    fprintf(stderr, "USAGE: %s number[suffix]...\n", PROGRAM_NAME);
-    fprintf(stderr, "       %s option\n", PROGRAM_NAME);
-    fprintf(stderr, "Supported suffixes: 's' for seconds; 'm' for minutes; 'h' "
-                    "for hours; 'd' for days.\n");
-    fprintf(stderr, "Supported options: '-h' for help, '-v' for version.\n");
+    fprintf(stderr, "USAGE: %s [options] number[suffix]...\n", PROGRAM_NAME);
+    fprintf(stderr, "       %s -h\n", PROGRAM_NAME);
+    fprintf(stderr, "       %s -v\n", PROGRAM_NAME);
+    fputs("Supported suffixes:\n"
+          "    's' for seconds;\n"
+          "    'm' for minutes;\n"
+          "    'h' for hours;\n"
+          "    'd' for days.\n"
+          "Supported options:\n"
+          "    -a: alert on finish.\n"
+          "Run with '-h' for help, with '-v' for version.\n"
+          , stderr);
     exit(2);
 }
 
@@ -213,8 +220,12 @@ static double parse_arg(const char *arg) {
 }
 
 int main(int argc, char **argv) {
-    for (int c; (c = getopt(argc, argv, "hv")) != -1;) {
+    bool alert_on_fin = false;
+    for (int c; (c = getopt(argc, argv, "ahv")) != -1;) {
         switch (c) {
+        case 'a':
+            alert_on_fin = true;
+            break;
         case 'h':
             help();
             break;
@@ -241,5 +252,9 @@ int main(int argc, char **argv) {
     }
     interactive = is_term_interactive();
     loop(seconds, 1);
+    if (alert_on_fin) {
+        buf[0] = '\a';
+        write_buf(1);
+    }
     return 0;
 }
