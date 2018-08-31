@@ -5,24 +5,26 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
-#include <math.h>
 #include <limits.h>
 
 static const char *PROGRAM_NAME = "zzz";
 
 static const char *SEQ_CLEAR_LINE = "\033[1K\033[1G";
 
+static const int TERM_FD = 1;
+
 static bool interactive;
 
 static char buf[1024];
 
-static const int TERM_FD = 1;
-
-static bool is_term_interactive(void) {
+static
+bool
+is_term_interactive(void)
+{
     if (isatty(TERM_FD) != 1) {
         return false;
     }
-    char *term = getenv("TERM");
+    const char *term = getenv("TERM");
     if (!term
         || strcmp(term, "") == 0
         || strcmp(term, "dumb") == 0)
@@ -32,40 +34,77 @@ static bool is_term_interactive(void) {
     return true;
 }
 
-static inline double ts_to_double(struct timespec ts) {
-    return ts.tv_sec + ts.tv_nsec / 1e9;
-}
-
-static inline struct timespec double_to_ts(double seconds) {
-    struct timespec ts = {.tv_sec = (time_t) seconds};
-    ts.tv_nsec = (long) ((seconds - ts.tv_sec) * 1e9);
+static inline
+struct timespec
+double_to_ts(double seconds)
+{
+    struct timespec ts;
+    ts.tv_sec = seconds;
+    ts.tv_nsec = (seconds - ts.tv_sec) * 1e9;
     return ts;
 }
 
-static double monotonic(void) {
+static inline
+struct timespec
+ts_sub(struct timespec a, struct timespec b)
+{
+    if ((a.tv_nsec -= b.tv_nsec) < 0) {
+        a.tv_nsec += 1e9;
+        if ((--a.tv_sec) == (time_t) -1) {
+            return (struct timespec) {0};
+        }
+    }
+    if (a.tv_sec < b.tv_sec) {
+        return (struct timespec) {0};
+    }
+    a.tv_sec -= b.tv_sec;
+    return a;
+}
+
+static inline
+struct timespec
+ts_add(struct timespec a, struct timespec b)
+{
+    if ((a.tv_nsec += b.tv_nsec) >= 1e9) {
+        a.tv_nsec -= 1e9;
+        ++a.tv_sec;
+    }
+    a.tv_sec += b.tv_sec;
+    return a;
+}
+
+static inline
+struct timespec
+monotonic(void)
+{
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
         perror("clock_gettime");
         exit(1);
     }
-    return ts_to_double(ts);
+    return ts;
 }
 
-static double zzz(double seconds) {
-    struct timespec ts = double_to_ts(seconds);
+static inline
+struct timespec
+try_sleep(struct timespec s)
+{
     struct timespec rem;
-    if (nanosleep(&ts, &rem) < 0) {
+    if (nanosleep(&s, &rem) < 0) {
         if (errno == EINTR) {
-            return ts_to_double(rem);
+            return rem;
         } else {
             perror("nanosleep");
             exit(1);
         }
     }
-    return seconds;
+    return (struct timespec) {0};
 }
 
-static void write_buf(size_t n) {
+static
+void
+write_buf(size_t n)
+{
     for (size_t written = 0; written != n; ) {
         ssize_t w = write(TERM_FD, buf + written, n - written);
         if (w < 0) {
@@ -76,14 +115,17 @@ static void write_buf(size_t n) {
     }
 }
 
-static void term_update(double seconds_left) {
+static
+void
+term_update(struct timespec ts)
+{
     size_t n = 0;
 #define APPENDF(...) (n += snprintf(buf + n, sizeof(buf) - n, __VA_ARGS__))
     if (interactive) {
         APPENDF("%s", SEQ_CLEAR_LINE);
     }
 
-    unsigned long long cur = (unsigned long long) (seconds_left + 0.5);
+    unsigned long long cur = ts.tv_sec + ts.tv_nsec / (long) (1e9 / 2);
     const int s = cur % 60;
     cur /= 60;
     const int m = cur % 60;
@@ -113,28 +155,38 @@ static void term_update(double seconds_left) {
 #undef APPENDF
 }
 
-static void term_update_end(void) {
+static
+void
+term_update_end(void)
+{
     if (interactive) {
         write_buf(snprintf(buf, sizeof(buf), "%s\n", SEQ_CLEAR_LINE));
     }
 }
 
-static void loop(double seconds, double blinktime) {
-    const double start = monotonic();
-    double left = seconds;
+static
+void
+loop(const struct timespec amount)
+{
+    const struct timespec start = monotonic();
+    struct timespec left = amount;
     term_update(left);
-    while (left > blinktime) {
-        const double slept = zzz(blinktime);
-        term_update(left - slept);
-        left = seconds - (monotonic() - start);
+    while (left.tv_sec) {
+        struct timespec rem = try_sleep((struct timespec) {.tv_sec = 1});
+        --left.tv_sec;
+        term_update(ts_add(left, rem));
+        left = ts_sub(amount, ts_sub(monotonic(), start));
     }
-    if (left > 0) {
-        zzz(left);
+    while (left.tv_nsec) {
+        left = try_sleep(left);
     }
     term_update_end();
 }
 
-static void help(void) {
+static
+void
+help(void)
+{
     fprintf(stderr, "USAGE: %s [options] number[suffix]...\n", PROGRAM_NAME);
     fprintf(stderr, "       %s -h\n", PROGRAM_NAME);
     fprintf(stderr, "       %s -v\n", PROGRAM_NAME);
@@ -150,25 +202,40 @@ static void help(void) {
     exit(2);
 }
 
-static void version(void) {
+static
+void
+version(void)
+{
     fprintf(stderr, "This is %s %s.\n", PROGRAM_NAME, PROGRAM_VERSION);
     exit(2);
 }
 
-static void usage(void) {
+static
+void
+usage(void)
+{
     fprintf(stderr, "Run '%s -h' for help.\n", PROGRAM_NAME);
     exit(2);
 }
 
-static inline bool my_is_digit(char c) {
+static inline
+bool
+my_is_digit(char c)
+{
     return '0' <= c && c <= '9';
 }
 
-static inline bool my_is_period(char c) {
+static inline
+bool
+my_is_period(char c)
+{
     return c == '.';
 }
 
-static double parse_arg(const char *arg) {
+static
+double
+parse_arg(const char *arg)
+{
     const char *s = arg;
     // skip the integer part
     while (my_is_digit(*s)) {
@@ -219,7 +286,9 @@ static double parse_arg(const char *arg) {
     return result * mul;
 }
 
-int main(int argc, char **argv) {
+int
+main(int argc, char **argv)
+{
     bool alert_on_fin = false;
     for (int c; (c = getopt(argc, argv, "ahv")) != -1;) {
         switch (c) {
@@ -246,12 +315,12 @@ int main(int argc, char **argv) {
     for (int i = optind; i < argc; ++i) {
         seconds += parse_arg(argv[i]);
     }
-    if (!isfinite(seconds) || seconds > (double) ULLONG_MAX) {
+    if (seconds >= (1UL << 31)) {
         fprintf(stderr, "That amount of time is insane.\n");
         exit(1);
     }
     interactive = is_term_interactive();
-    loop(seconds, 1);
+    loop(double_to_ts(seconds));
     if (alert_on_fin) {
         buf[0] = '\a';
         write_buf(1);
