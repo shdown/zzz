@@ -166,7 +166,7 @@ term_update_end(void)
 
 static
 void
-loop(const struct timespec amount)
+interactive_sleep(const struct timespec amount)
 {
     const struct timespec start = monotonic();
     struct timespec left = amount;
@@ -320,7 +320,7 @@ main(int argc, char **argv)
         exit(1);
     }
     interactive = is_term_interactive();
-    loop(double_to_ts(seconds));
+    interactive_sleep(double_to_ts(seconds));
     if (alert_on_fin) {
         buf[0] = '\a';
         write_buf(1);
