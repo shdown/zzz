@@ -187,7 +187,7 @@ static
 void
 help(void)
 {
-    fprintf(stderr, "USAGE: %s [options] number[suffix]...\n", PROGRAM_NAME);
+    fprintf(stderr, "USAGE: %s number[suffix]...\n", PROGRAM_NAME);
     fprintf(stderr, "       %s -h\n", PROGRAM_NAME);
     fprintf(stderr, "       %s -v\n", PROGRAM_NAME);
     fputs("Supported suffixes:\n"
@@ -195,8 +195,6 @@ help(void)
           "    'm' for minutes;\n"
           "    'h' for hours;\n"
           "    'd' for days.\n"
-          "Supported options:\n"
-          "    -a: alert on finish.\n"
           "Run with '-h' for help, with '-v' for version.\n"
           , stderr);
     exit(2);
@@ -289,12 +287,8 @@ parse_arg(const char *arg)
 int
 main(int argc, char **argv)
 {
-    bool alert_on_fin = false;
-    for (int c; (c = getopt(argc, argv, "ahv")) != -1;) {
+    for (int c; (c = getopt(argc, argv, "hv:")) != -1;) {
         switch (c) {
-        case 'a':
-            alert_on_fin = true;
-            break;
         case 'h':
             help();
             break;
@@ -321,9 +315,5 @@ main(int argc, char **argv)
     }
     interactive = is_term_interactive();
     interactive_sleep(double_to_ts(seconds));
-    if (alert_on_fin) {
-        buf[0] = '\a';
-        write_buf(1);
-    }
     return 0;
 }
