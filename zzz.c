@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
-#include <limits.h>
+#include <ctype.h>
 
 static const char *PROGRAM_NAME = "zzz";
 
@@ -34,7 +34,8 @@ is_term_interactive(void)
     return true;
 }
 
-static inline
+// Assumes the argument fits in time_t.
+static
 struct timespec
 double_to_ts(double seconds)
 {
@@ -44,7 +45,7 @@ double_to_ts(double seconds)
     return ts;
 }
 
-static inline
+static
 struct timespec
 ts_sub(struct timespec a, struct timespec b)
 {
@@ -61,7 +62,7 @@ ts_sub(struct timespec a, struct timespec b)
     return a;
 }
 
-static inline
+static
 struct timespec
 ts_add(struct timespec a, struct timespec b)
 {
@@ -73,7 +74,7 @@ ts_add(struct timespec a, struct timespec b)
     return a;
 }
 
-static inline
+static
 struct timespec
 monotonic(void)
 {
@@ -85,12 +86,12 @@ monotonic(void)
     return ts;
 }
 
-static inline
+static
 struct timespec
-try_sleep(struct timespec s)
+try_sleep(struct timespec ts)
 {
     struct timespec rem;
-    if (nanosleep(&s, &rem) < 0) {
+    if (nanosleep(&ts, &rem) < 0) {
         if (errno == EINTR) {
             return rem;
         } else {
@@ -125,6 +126,7 @@ term_update(struct timespec ts)
         APPENDF("%s", SEQ_CLEAR_LINE);
     }
 
+    // round (ts.tv_sec + ts.tv_nsec / 1e9) to the nearest integer
     unsigned long long cur = ts.tv_sec + ts.tv_nsec / (long) (1e9 / 2);
     const int s = cur % 60;
     cur /= 60;
@@ -168,13 +170,13 @@ static
 void
 interactive_sleep(const struct timespec amount)
 {
+    const struct timespec second = {.tv_sec = 1};
     const struct timespec start = monotonic();
     struct timespec left = amount;
     term_update(left);
     while (left.tv_sec) {
-        struct timespec rem = try_sleep((struct timespec) {.tv_sec = 1});
-        --left.tv_sec;
-        term_update(ts_add(left, rem));
+        const struct timespec rem = try_sleep(second);
+        term_update(ts_add(ts_sub(left, second), rem));
         left = ts_sub(amount, ts_sub(monotonic(), start));
     }
     while (left.tv_nsec) {
@@ -185,129 +187,70 @@ interactive_sleep(const struct timespec amount)
 
 static
 void
-help(void)
+print_usage_and_exit(void)
 {
     fprintf(stderr, "USAGE: %s number[suffix]...\n", PROGRAM_NAME);
-    fprintf(stderr, "       %s -h\n", PROGRAM_NAME);
-    fprintf(stderr, "       %s -v\n", PROGRAM_NAME);
     fputs("Supported suffixes:\n"
           "    's' for seconds;\n"
           "    'm' for minutes;\n"
           "    'h' for hours;\n"
           "    'd' for days.\n"
-          "Run with '-h' for help, with '-v' for version.\n"
           , stderr);
     exit(2);
 }
 
 static
-void
-version(void)
-{
-    fprintf(stderr, "This is %s %s.\n", PROGRAM_NAME, PROGRAM_VERSION);
-    exit(2);
-}
-
-static
-void
-usage(void)
-{
-    fprintf(stderr, "Run '%s -h' for help.\n", PROGRAM_NAME);
-    exit(2);
-}
-
-static inline
-bool
-my_is_digit(char c)
-{
-    return '0' <= c && c <= '9';
-}
-
-static inline
-bool
-my_is_period(char c)
-{
-    return c == '.';
-}
-
-static
 double
-parse_arg(const char *arg)
+parse_arg_or_die(const char *arg)
 {
-    const char *s = arg;
-    // skip the integer part
-    while (my_is_digit(*s)) {
-        ++s;
+    if (isspace(arg[0])) {
+        goto err_number;
     }
-    // no digits?
-    if (s == arg) {
-        fprintf(stderr, "Argument '%s': does not start with a digit\n", arg);
-        exit(1);
+    char *suffix;
+    double r = strtod(arg, &suffix);
+    if (suffix == arg) {
+        goto err_number;
     }
-    // skip the fractional part, if any
-    if (my_is_period(*s)) {
-        do {
-            ++s;
-        } while (my_is_digit(*s));
-    }
-    // parse the suffix, if any
-    double mul = 1;
-    switch (*s) {
+    switch (*suffix) {
     case 'd':
-        mul *= 24;
-        // fallthrough
+        r *= 24;
+        // fall thru
     case 'h':
-        mul *= 60;
-        // fallthrough
+        r *= 60;
+        // fall thru
     case 'm':
-        mul *= 60;
-        // fallthrough
-    case '\0':
+        r *= 60;
+        // fall thru
     case 's':
+        if (suffix[1] != '\0') {
+            goto err_suffix;
+        }
+        break;
+    case '\0':
         break;
     default:
-        fprintf(stderr, "Argument '%s': unknown suffix\n", arg);
-        exit(1);
+        goto err_suffix;
     }
-    // suffix is present and is longer than one character?
-    if (*s && s[1]) {
-        fprintf(stderr, "Argument '%s': extra characters after suffix\n", arg);
-        exit(1);
-    }
-    // parse the number part
-    errno = 0;
-    double result = strtod(arg, NULL);
-    if (errno) {
-        fprintf(stderr, "Argument '%s': something's wrong with number\n", arg);
-        exit(1);
-    }
-    return result * mul;
+    return r;
+
+err_number:
+    fprintf(stderr, "Argument '%s': does not start with number\n", arg);
+    exit(1);
+err_suffix:
+    fprintf(stderr, "Argument '%s': invalid suffix.\n", arg);
+    exit(1);
 }
 
 int
 main(int argc, char **argv)
 {
-    for (int c; (c = getopt(argc, argv, "hv:")) != -1;) {
-        switch (c) {
-        case 'h':
-            help();
-            break;
-        case 'v':
-            version();
-            break;
-        case '?':
-            usage();
-            break;
-        }
-    }
-
-    if (optind == argc) {
-        fprintf(stderr, "No arguments provided.\n");
-        usage();
+    if (argc < 2) {
+        fputs("At least one argument is required.\n", stderr);
+        print_usage_and_exit();
     }
     double seconds = 0;
-    for (int i = optind; i < argc; ++i) {
-        seconds += parse_arg(argv[i]);
+    for (int i = 1; i < argc; ++i) {
+        seconds += parse_arg_or_die(argv[i]);
     }
     if (seconds >= (1UL << 31)) {
         fprintf(stderr, "That amount of time is insane.\n");
