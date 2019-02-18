@@ -49,16 +49,15 @@ static
 struct timespec
 ts_sub(struct timespec a, struct timespec b)
 {
+    int borrow = 0;
     if ((a.tv_nsec -= b.tv_nsec) < 0) {
         a.tv_nsec += 1e9;
-        if ((--a.tv_sec) == (time_t) -1) {
-            return (struct timespec) {0};
-        }
+        borrow = 1;
     }
-    if (a.tv_sec < b.tv_sec) {
+    if (a.tv_sec < b.tv_sec + borrow) {
         return (struct timespec) {0};
     }
-    a.tv_sec -= b.tv_sec;
+    a.tv_sec -= b.tv_sec + borrow;
     return a;
 }
 
@@ -135,18 +134,18 @@ term_update(struct timespec ts)
     const int h = cur % 24;
     const unsigned long long d = cur / 24;
 
-    bool printed = false;
-    if (d || printed) {
+    bool nonempty = false;
+    if (d || nonempty) {
         APPENDF("%llud ", d);
-        printed = true;
+        nonempty = true;
     }
-    if (h || printed) {
+    if (h || nonempty) {
         APPENDF("%dh ", h);
-        printed = true;
+        nonempty = true;
     }
-    if (m || printed) {
+    if (m || nonempty) {
         APPENDF("%dm ", m);
-        printed = true;
+        nonempty = true;
     }
     APPENDF("%ds", s);
 
@@ -252,8 +251,9 @@ main(int argc, char **argv)
     for (int i = 1; i < argc; ++i) {
         seconds += parse_arg_or_die(argv[i]);
     }
-    if (seconds >= (1UL << 31)) {
-        fprintf(stderr, "That amount of time is insane.\n");
+    // time_t can't be shorter than 32 bit.
+    if (seconds > 2147483647.) {
+        fputs("That amount of time is insane.\n", stderr);
         exit(1);
     }
     interactive = is_term_interactive();
