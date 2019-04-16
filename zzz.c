@@ -207,7 +207,7 @@ parse_arg_or_die(const char *arg)
     }
     char *suffix;
     double r = strtod(arg, &suffix);
-    if (suffix == arg || r < 0) {
+    if (suffix == arg || r < 0 || r != r) {
         goto err_number;
     }
     switch (*suffix) {
