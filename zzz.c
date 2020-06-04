@@ -7,13 +7,18 @@
 #include <errno.h>
 #include <ctype.h>
 
+// Assumes time_t can't be shorter than 32 bit.
+static const double MAX_TIME = 2147483647.;
+
 static const char *PROGRAM_NAME = "zzz";
 
 static const char *SEQ_CLEAR_LINE = "\033[1K\033[1G";
 
-static const int TERM_FD = 1;
+static const int TERM_FD = 2;
 
 static bool interactive;
+
+static bool fflag;
 
 static char buf[1024];
 
@@ -34,7 +39,7 @@ is_term_interactive(void)
     return true;
 }
 
-// Assumes the argument fits in time_t.
+// Assumes the argument fits into time_t.
 static
 struct timespec
 double_to_ts(double seconds)
@@ -117,8 +122,10 @@ write_buf(size_t n)
 
 static
 void
-term_update(struct timespec ts)
+term_update(struct timespec left, struct timespec amount)
 {
+    struct timespec ts = fflag ? ts_sub(amount, left) : left;
+
     size_t n = 0;
 #define APPENDF(...) (n += snprintf(buf + n, sizeof(buf) - n, __VA_ARGS__))
     if (interactive) {
@@ -172,10 +179,12 @@ interactive_sleep(const struct timespec amount)
     const struct timespec second = {.tv_sec = 1};
     const struct timespec start = monotonic();
     struct timespec left = amount;
-    term_update(left);
+    term_update(left, amount);
     while (left.tv_sec) {
         const struct timespec rem = try_sleep(second);
-        term_update(ts_add(ts_sub(left, second), rem));
+        term_update(
+            ts_add(ts_sub(left, second), rem),
+            amount);
         left = ts_sub(amount, ts_sub(monotonic(), start));
     }
     while (left.tv_nsec) {
@@ -188,7 +197,8 @@ static
 void
 print_usage_and_exit(void)
 {
-    fprintf(stderr, "USAGE: %s number[suffix]...\n", PROGRAM_NAME);
+    fprintf(stderr, "USAGE: %s [-f] number[suffix]...\n", PROGRAM_NAME);
+    fputs("    -f: count forward, not backward.\n", stderr);
     fputs("Supported suffixes:\n"
           "    's' for seconds;\n"
           "    'm' for minutes;\n"
@@ -233,28 +243,38 @@ parse_arg_or_die(const char *arg)
     return r;
 
 err_number:
-    fprintf(stderr, "Argument '%s': does not start with number\n", arg);
+    fprintf(stderr, "E: argument '%s': does not start with number\n", arg);
     exit(1);
 err_suffix:
-    fprintf(stderr, "Argument '%s': invalid suffix.\n", arg);
+    fprintf(stderr, "E: argument '%s': invalid suffix.\n", arg);
     exit(1);
 }
 
 int
 main(int argc, char **argv)
 {
-    if (argc < 2) {
-        fputs("At least one argument is required.\n", stderr);
+    for (int c; (c = getopt(argc, argv, "f")) != -1;) {
+        switch (c) {
+        case 'f':
+            fflag = true;
+            break;
+        default:
+            print_usage_and_exit();
+        }
+    }
+
+    if (argc - optind < 1) {
+        fputs("At least one positional argument is required.\n", stderr);
         print_usage_and_exit();
     }
+
     double seconds = 0;
-    for (int i = 1; i < argc; ++i) {
+    for (int i = optind; i < argc; ++i) {
         seconds += parse_arg_or_die(argv[i]);
     }
-    // time_t can't be shorter than 32 bit.
-    if (seconds > 2147483647.) {
-        fputs("That amount of time is insane.\n", stderr);
-        exit(1);
+    if (seconds > MAX_TIME) {
+        fputs("W: that amount of time is insane.\n", stderr);
+        seconds = MAX_TIME;
     }
     interactive = is_term_interactive();
     interactive_sleep(double_to_ts(seconds));
