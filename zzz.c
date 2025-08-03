@@ -212,7 +212,7 @@ static
 double
 parse_arg_or_die(const char *arg)
 {
-    if (isspace(arg[0])) {
+    if (isspace((unsigned char) arg[0])) {
         goto err_number;
     }
     char *suffix;
