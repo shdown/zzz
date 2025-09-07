@@ -6,6 +6,7 @@
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
+#include <sys/types.h>
 
 // Assumes time_t can't be shorter than 32 bit.
 static const double MAX_TIME = 2147483647.;
