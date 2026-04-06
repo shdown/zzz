@@ -175,7 +175,7 @@ int main(int argc, char **argv)
     }
 
     if (my_time_make_addsafe(&total)) {
-        fputs("W: this amount of time is insafe, truncated.\n", stderr);
+        fputs("W: this amount of time is insane, truncated.\n", stderr);
     }
 
     interactive = is_term_interactive();
